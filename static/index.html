@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pillar 1 — Face Quality Reliability Tester</title>
+<style>
+    body { font-family: -apple-system, sans-serif; background: #f4f4f9; color: #333; margin: 0; padding: 20px; }
+    .container { max-width: 1100px; margin: 0 auto; display: flex; gap: 20px; flex-wrap: wrap; }
+    .panel { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); flex: 1; min-width: 340px; }
+    video { width: 100%; border-radius: 8px; background: #000; transform: scaleX(-1); }
+    .btn { display: block; width: 100%; padding: 12px; margin-top: 10px; background: #2563eb; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 15px; }
+    .btn:hover { background: #1d4ed8; }
+    .btn:disabled { background: #94a3b8; cursor: not-allowed; }
+    pre { background: #1e293b; color: #10b981; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 13px; white-space: pre-wrap; max-height: 420px; }
+    #status-text { font-weight: 600; min-height: 22px; }
+    .hint { padding: 10px 12px; border-radius: 6px; margin-top: 8px; font-size: 14px; }
+    .hint.bad { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+    .hint.good { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+    .scorebar-row { margin-top: 10px; font-size: 13px; }
+    .scorebar-label { display: flex; justify-content: space-between; margin-bottom: 3px; }
+    .scorebar-track { background: #e5e7eb; border-radius: 4px; height: 10px; overflow: hidden; }
+    .scorebar-fill { height: 100%; border-radius: 4px; background: #2563eb; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; margin-left: 8px; }
+    .badge.skin { background: #dbeafe; color: #1e40af; }
+    .badge.degraded { background: #fef3c7; color: #92400e; }
+    label.toggle { display: flex; align-items: center; gap: 8px; font-size: 14px; margin-top: 12px; cursor: pointer; }
+    #server-url { width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #cbd5e1; margin-top: 4px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div class="container">
+    <div class="panel">
+        <h2>Live Camera</h2>
+        <video id="webcam" autoplay playsinline muted></video>
+        <canvas id="capture-canvas" style="display:none;"></canvas>
+
+        <label class="toggle">
+            <input type="checkbox" id="burst-toggle" checked>
+            Burst mode (5 frames, ~500ms) — recommended, resistant to auto-exposure flicker
+        </label>
+
+        <button id="btn-face" class="btn">Run Face Quality Check</button>
+
+        <label style="font-size:13px; display:block; margin-top:14px;">
+            Backend URL
+            <input id="server-url" type="text" value="/v1/face-quality">
+        </label>
+    </div>
+
+    <div class="panel">
+        <h2>Result</h2>
+        <p id="status-text">Ready. Waiting for capture...</p>
+
+        <div id="hint-box"></div>
+
+        <div id="scorebars"></div>
+
+        <pre id="json-output">JSON results will appear here...</pre>
+    </div>
+</div>
+
+<script>
+const video = document.getElementById('webcam');
+const captureCanvas = document.getElementById('capture-canvas');
+const ctx = captureCanvas.getContext('2d');
+
+const btnFace = document.getElementById('btn-face');
+const jsonOutput = document.getElementById('json-output');
+const statusText = document.getElementById('status-text');
+const hintBox = document.getElementById('hint-box');
+const scorebars = document.getElementById('scorebars');
+const burstToggle = document.getElementById('burst-toggle');
+const serverUrlInput = document.getElementById('server-url');
+
+async function startCamera() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+        video.srcObject = stream;
+    } catch (err) {
+        statusText.innerText = "Error accessing webcam: " + err.message;
+    }
+}
+startCamera();
+
+function captureFrame() {
+    captureCanvas.width = video.videoWidth;
+    captureCanvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+    return captureCanvas.toDataURL('image/jpeg', 0.9).split(',')[1];
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function captureBurst(count = 5, intervalMs = 110) {
+    const frames = [];
+    for (let i = 0; i < count; i++) {
+        frames.push(captureFrame());
+        if (i < count - 1) await sleep(intervalMs);
+    }
+    return frames;
+}
+
+function renderScorebar(label, value) {
+    const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
+    return `
+      <div class="scorebar-row">
+        <div class="scorebar-label"><span>${label}</span><span>${pct}%</span></div>
+        <div class="scorebar-track"><div class="scorebar-fill" style="width:${pct}%; background:${pct < 50 ? '#dc2626' : pct < 70 ? '#f59e0b' : '#16a34a'}"></div></div>
+      </div>`;
+}
+
+function renderResult(data) {
+    scorebars.innerHTML =
+        renderScorebar('Visibility', data.visibility_score) +
+        renderScorebar('Brightness', data.brightness_score) +
+        renderScorebar('Clarity', data.clarity_score) +
+        renderScorebar('Composite', data.composite_score);
+
+    hintBox.innerHTML = '';
+    if (!data.hints || data.hints.length === 0) {
+        hintBox.innerHTML = `<div class="hint good">✓ All checks passed.</div>`;
+    } else {
+        for (const h of data.hints) {
+            hintBox.innerHTML += `<div class="hint bad">${h}</div>`;
+        }
+    }
+
+    let modeBadge = '';
+    const diag = data.brightness_diagnostics || (data.per_frame_diagnostics && data.per_frame_diagnostics[0]);
+    if (diag) {
+        modeBadge = diag.mode === 'skin_patch'
+            ? '<span class="badge skin">skin-patch sampling</span>'
+            : '<span class="badge degraded">degraded fallback</span>';
+    }
+
+    statusText.innerHTML = `Face check complete${data.frames_analyzed ? ` (${data.frames_analyzed} frames analyzed)` : ''}. ${modeBadge}`;
+    jsonOutput.innerText = JSON.stringify(data, null, 2);
+}
+
+btnFace.addEventListener('click', async () => {
+    btnFace.disabled = true;
+    hintBox.innerHTML = '';
+    scorebars.innerHTML = '';
+    const useBurst = burstToggle.checked;
+    statusText.innerText = useBurst ? "Capturing burst..." : "Capturing frame...";
+
+    let body;
+    if (useBurst) {
+        const frames = await captureBurst();
+        body = JSON.stringify({ face_frames: frames });
+    } else {
+        body = JSON.stringify({ face_frame: captureFrame() });
+    }
+
+    statusText.innerText = "Analyzing...";
+
+    try {
+        const response = await fetch(serverUrlInput.value, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+        });
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({ detail: response.statusText }));
+            throw new Error(errData.detail || response.statusText);
+        }
+        const data = await response.json();
+        renderResult(data);
+    } catch (err) {
+        statusText.innerText = "Error";
+        jsonOutput.innerText = "Error: " + err.message;
+    }
+    btnFace.disabled = false;
+});
+</script>
+</body>
+</html>

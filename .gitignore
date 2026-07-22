@@ -1,0 +1,24 @@
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+env/
+.venv/
+
+# Environment Variables
+.env
+
+# Large Model Files (from config.py)
+models/*.task
+models/*.onnx
+
+# Local Logs (from config.py)
+logs/*.csv
+
+# IDEs and OS Files
+.vscode/
+.idea/
+.DS_Store
