@@ -30,7 +30,7 @@ The included `static/index.html` is a self-contained browser demo: it opens the 
 flowchart TD
     subgraph Client["Browser (static/index.html)"]
         A[getUserMedia webcam stream] --> B[captureFrame / captureBurst]
-        B --> C[POST base64 JPEG frame(s)]
+        B --> C["POST base64 JPEG frame(s)"]
     end
 
     subgraph Server["FastAPI (main.py)"]
