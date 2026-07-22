@@ -11,12 +11,15 @@ env/
 # Environment Variables
 .env
 
-# Large Model Files (from config.py)
+# Large Model Files
 models/*.task
 models/*.onnx
 
-# Local Logs (from config.py)
+# Local Logs
 logs/*.csv
+
+# Packed Repository Data
+brightness.xml
 
 # IDEs and OS Files
 .vscode/
